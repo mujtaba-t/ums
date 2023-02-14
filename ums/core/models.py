@@ -4,4 +4,5 @@ from django.contrib.auth.models import AbstractUser
 # Create your models here.
 
 class User(AbstractUser):
-    pass
+    user_type = models.TextField(null=True)
+    user_id = models.IntegerField(null=True)
