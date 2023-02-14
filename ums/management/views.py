@@ -17,6 +17,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from django.db.models import Q
 from django.db.models import Count
+from datetime import datetime
 
 # Create your views here.
 
@@ -440,11 +441,17 @@ class StudentDetail(APIView):
                 if(project.top_skill1.lower() == i.lower() or project.top_skill2.lower() == i.lower() or project.top_skill3.lower() == i.lower()):
                     kpi[i.lower()]['psychometric'] = (len(student.project.all())/student_with_most_projects.num_projects*100*0.2)
         
-        sorted_dict = dict(sorted(kpi.items(), key=lambda x: sum(x[1].values()),reverse = True))
- 
-        kpi_values = {k: v for i, (k, v) in enumerate(sorted_dict.items()) if i < 3}
+        try:
+            sorted_dict = dict(sorted(kpi.items(), key=lambda x: sum(x[1].values()),reverse = True))
 
-        dictionary['kpi_values'] = kpi_values
+            kpi_values = {k: v for i, (k, v) in enumerate(sorted_dict.items()) if i < 3}
+
+            dictionary['kpi_values'] = kpi_values
+
+        except:
+            kpi_values = {k: v for i, (k, v) in enumerate(kpi.items()) if i < 3}
+
+            dictionary['kpi_values'] = kpi_values
 
         sports = student.sports.all()
 
@@ -490,6 +497,9 @@ class CertificateVerification(APIView):
             return Response(f"The text '{text_to_search}' was found on the website.")
         except:
             driver.close()
+            student = get_object_or_404(Student, pk = student_id)
+            certificate = Certification(student_id = student, platform = platform, certificate_name = certificate_name, datetime = datetime, link = link, student_name = student_name)
+            certificate.save()
             return Response(f"The text '{text_to_search}' was not found on the website.")
 
 class QuizUpdate(APIView):
@@ -647,7 +657,7 @@ class ProjectCreateDelete(APIView):
 
 class Kpi(APIView):
     def get(self, request):
-        
+
         kpi_list = []
 
         students = Student.objects.all().prefetch_related('courses_grade', 'quiz_grade', 'project', 'skill')
@@ -658,11 +668,33 @@ class Kpi(APIView):
         most_certified_student = certifications.order_by('-count')[0]
 
         for student in students:
+
+            if(int(student.semester) == 1 or int(student.semester) == 2):
+                QUIZ_PERCENTAGE = 0.5
+                COURSE_PERCENTAGE = 0.15
+                CERTIFICATE_PERCENTAGE = 0.35
+            
+            elif(int(student.semester) == 3 or int(student.semester) == 4):
+                QUIZ_PERCENTAGE = 0.46
+                COURSE_PERCENTAGE = 0.16
+                CERTIFICATE_PERCENTAGE = 0.38
+            
+            elif(int(student.semester) == 5 or int(student.semester) == 6):
+                QUIZ_PERCENTAGE = 0.44
+                COURSE_PERCENTAGE = 0.19
+                CERTIFICATE_PERCENTAGE = 0.37
+            
+            else:
+                QUIZ_PERCENTAGE = 0.43
+                COURSE_PERCENTAGE = 0.22
+                CERTIFICATE_PERCENTAGE = 0.35
+
+
             sum_marks = 0
             courses = CourseGrade.objects.filter(student_id = student.id).select_related('student_id', 'coourse_id')
             for course in courses:
                 sum_marks += course.marks
-            course_score = (sum_marks/37*0.2)
+            course_score = (sum_marks/37*COURSE_PERCENTAGE)
 
             gpa = defaultdict(list)
 
@@ -685,28 +717,28 @@ class Kpi(APIView):
                 quiz_marks += (quiz.marks/3)
             
             try:
-                quiz_score = (quiz_marks/len(quizes)*100*0.4)
+                quiz_score = (quiz_marks/len(quizes)*100*QUIZ_PERCENTAGE)
             except:
                 quiz_score = 0
 
-
-            project_score = (len(student.project.all())/student_with_most_projects.num_projects*100*0.2)
-
             certificates = Certification.objects.filter(student_id = student.id)
 
-            certifcate_score = (len(certificates)/most_certified_student['count']*100*0.2)
+            certifcate_score = (len(certificates)/most_certified_student['count']*100*CERTIFICATE_PERCENTAGE)
 
             experience_years = 0.00
 
             for experience in student.experience.all():
-                time_diff = experience.end_date - experience.start_date
+                try:
+                    time_diff = experience.end_date - experience.start_date
+                except:
+                    time_diff = datetime.now() - experience.start_date.replace(tzinfo=None)
                 experience_years += time_diff.days / 365.25
 
             kpi_list.append(
                                 {
                                     'student_id': student.id, 
                                     'student_name': student.first_name + " " + student.last_name , 
-                                    'score': course_score + quiz_score + project_score + certifcate_score,
+                                    'score': course_score + quiz_score + certifcate_score,
                                     'department': student.department,
                                     'batch': student.enrollment_year + 4,
                                     'Semester': student.semester,
